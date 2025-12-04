@@ -119,13 +119,13 @@ app.get('/api/balance/:wallet_address', async (req, res) => {
 // Transaction endpoints
 app.post('/api/transactions/create', async (req, res) => {
   try {
-    const { from_address, to_address, amount, token } = req.body
+    const { from_address, to_address, amount, token, note, privacy, from_username, to_username } = req.body
 
     const result = await pool.query(
-      `INSERT INTO transactions (from_address, to_address, amount, token, status, fee, timestamp)
-       VALUES ($1, $2, $3, $4, 'pending', '0.0001', NOW())
+      `INSERT INTO transactions (from_address, to_address, from_username, to_username, amount, token, status, fee, note, privacy, timestamp)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending', '0.0001', $7, $8, NOW())
        RETURNING *`,
-      [from_address, to_address, amount, token || 'USDC']
+      [from_address, to_address, from_username, to_username, amount, token || 'USDC', note, privacy || 'public']
     )
 
     const data = result.rows[0]
@@ -194,6 +194,193 @@ app.post('/api/notify', async (req, res) => {
     })
 
     res.json({ success: true })
+  } catch (error: any) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// Feed endpoints
+app.get('/api/feed', async (req, res) => {
+  try {
+    const { filter = 'all' } = req.query
+
+    let query = `
+      SELECT t.*, 
+        COALESCE(
+          json_object_agg(r.emoji, r.count) FILTER (WHERE r.emoji IS NOT NULL),
+          '{}'::json
+        ) as reactions
+      FROM transactions t
+      LEFT JOIN (
+        SELECT transaction_id, emoji, COUNT(*) as count
+        FROM reactions
+        GROUP BY transaction_id, emoji
+      ) r ON t.id = r.transaction_id
+      WHERE t.privacy = 'public' AND t.status = 'completed'
+      GROUP BY t.id
+      ORDER BY t.timestamp DESC
+      LIMIT 50
+    `
+
+    const result = await pool.query(query)
+    res.json(result.rows)
+  } catch (error: any) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.post('/api/feed/reaction', async (req, res) => {
+  try {
+    const { item_id, emoji, username } = req.body
+
+    await pool.query(
+      `INSERT INTO reactions (transaction_id, username, emoji, created_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (transaction_id, username, emoji) DO NOTHING`,
+      [item_id, username, emoji]
+    )
+
+    res.json({ success: true })
+  } catch (error: any) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// Payment request endpoints
+app.post('/api/requests/create', async (req, res) => {
+  try {
+    const { from_username, to_username, amount, note } = req.body
+
+    const result = await pool.query(
+      `INSERT INTO payment_requests (from_username, to_username, amount, note, status, created_at)
+       VALUES ($1, $2, $3, $4, 'pending', NOW())
+       RETURNING *`,
+      [from_username, to_username, amount, note]
+    )
+
+    res.json(result.rows[0])
+  } catch (error: any) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.get('/api/requests/incoming/:username', async (req, res) => {
+  try {
+    const { username } = req.params
+
+    const result = await pool.query(
+      `SELECT * FROM payment_requests 
+       WHERE to_username = $1
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [username]
+    )
+
+    res.json(result.rows)
+  } catch (error: any) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.get('/api/requests/outgoing/:username', async (req, res) => {
+  try {
+    const { username } = req.params
+
+    const result = await pool.query(
+      `SELECT * FROM payment_requests 
+       WHERE from_username = $1
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [username]
+    )
+
+    res.json(result.rows)
+  } catch (error: any) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.post('/api/requests/update', async (req, res) => {
+  try {
+    const { request_id, status } = req.body
+
+    const result = await pool.query(
+      `UPDATE payment_requests 
+       SET status = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING *`,
+      [status, request_id]
+    )
+
+    res.json(result.rows[0])
+  } catch (error: any) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// Profile endpoints
+app.get('/api/profile/:username', async (req, res) => {
+  try {
+    const { username } = req.params
+
+    const result = await pool.query(
+      'SELECT username, bio, avatar, privacy, wallet_address FROM users WHERE username = $1',
+      [username]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' })
+    }
+
+    res.json(result.rows[0])
+  } catch (error: any) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+app.post('/api/profile/update', async (req, res) => {
+  try {
+    const { username, bio, avatar, privacy } = req.body
+
+    const result = await pool.query(
+      `UPDATE users 
+       SET bio = COALESCE($2, bio), 
+           avatar = COALESCE($3, avatar), 
+           privacy = COALESCE($4, privacy),
+           updated_at = NOW()
+       WHERE username = $1
+       RETURNING username, bio, avatar, privacy, wallet_address`,
+      [username, bio, avatar, privacy]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' })
+    }
+
+    res.json(result.rows[0])
+  } catch (error: any) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// Search users
+app.get('/api/users/search', async (req, res) => {
+  try {
+    const { q } = req.query
+
+    if (!q || typeof q !== 'string' || q.length < 2) {
+      return res.json([])
+    }
+
+    const result = await pool.query(
+      `SELECT username, wallet_address, created_at 
+       FROM users 
+       WHERE username ILIKE $1
+       LIMIT 20`,
+      [`%${q}%`]
+    )
+
+    res.json(result.rows)
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }

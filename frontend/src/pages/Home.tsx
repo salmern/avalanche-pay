@@ -5,8 +5,10 @@ import { useStore } from '../store/useStore'
 import { getTelegramUser, hapticFeedback } from '../lib/telegram'
 import toast from 'react-hot-toast'
 
+type Page = 'send' | 'receive' | 'history' | 'feed' | 'request' | 'profile' | 'search' | 'split'
+
 interface HomeProps {
-  onNavigate: (page: 'send' | 'receive' | 'history') => void
+  onNavigate: (page: Page) => void
 }
 
 export function Home({ onNavigate }: HomeProps) {
@@ -58,7 +60,7 @@ export function Home({ onNavigate }: HomeProps) {
     toast.success('Wallet disconnected')
   }
 
-  const handleQuickAction = (action: 'send' | 'receive') => {
+  const handleQuickAction = (action: Page) => {
     hapticFeedback('light')
     onNavigate(action)
   }
@@ -143,37 +145,80 @@ export function Home({ onNavigate }: HomeProps) {
       )}
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
+      <div className="grid grid-cols-2 gap-3 mb-4">
         <button
           onClick={() => handleQuickAction('send')}
           disabled={!isConnected || !user}
-          className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 hover:bg-white/20 transition-all transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="bg-white/10 backdrop-blur-lg rounded-2xl p-5 border border-white/20 hover:bg-white/20 transition-all transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <div className="flex flex-col items-center">
-            <div className="bg-purple-500/20 p-3 rounded-full mb-3">
+            <div className="bg-purple-500/20 p-3 rounded-full mb-2">
               <svg className="w-6 h-6 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
               </svg>
             </div>
-            <p className="text-white font-semibold">Send</p>
+            <p className="text-white font-semibold text-sm">Send</p>
           </div>
         </button>
 
         <button
           onClick={() => handleQuickAction('receive')}
           disabled={!isConnected || !user}
-          className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20 hover:bg-white/20 transition-all transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="bg-white/10 backdrop-blur-lg rounded-2xl p-5 border border-white/20 hover:bg-white/20 transition-all transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <div className="flex flex-col items-center">
-            <div className="bg-orange-500/20 p-3 rounded-full mb-3">
+            <div className="bg-orange-500/20 p-3 rounded-full mb-2">
               <svg className="w-6 h-6 text-orange-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m0 0l-4-4m4 4l4-4" />
               </svg>
             </div>
-            <p className="text-white font-semibold">Receive</p>
+            <p className="text-white font-semibold text-sm">Receive</p>
+          </div>
+        </button>
+
+        <button
+          onClick={() => handleQuickAction('request')}
+          disabled={!isConnected || !user}
+          className="bg-white/10 backdrop-blur-lg rounded-2xl p-5 border border-white/20 hover:bg-white/20 transition-all transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <div className="flex flex-col items-center">
+            <div className="bg-blue-500/20 p-3 rounded-full mb-2">
+              <svg className="w-6 h-6 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+              </svg>
+            </div>
+            <p className="text-white font-semibold text-sm">Request</p>
+          </div>
+        </button>
+
+        <button
+          onClick={() => handleQuickAction('split')}
+          disabled={!isConnected || !user}
+          className="bg-white/10 backdrop-blur-lg rounded-2xl p-5 border border-white/20 hover:bg-white/20 transition-all transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <div className="flex flex-col items-center">
+            <div className="bg-green-500/20 p-3 rounded-full mb-2">
+              <svg className="w-6 h-6 text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+            </div>
+            <p className="text-white font-semibold text-sm">Split Bill</p>
           </div>
         </button>
       </div>
+
+      {/* Search Button */}
+      {isConnected && user && (
+        <button
+          onClick={() => handleQuickAction('search')}
+          className="w-full bg-white/10 backdrop-blur-lg rounded-2xl p-4 mb-6 border border-white/20 hover:bg-white/20 transition-all flex items-center"
+        >
+          <svg className="w-5 h-5 text-purple-300 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <span className="text-white font-semibold">Search Users</span>
+        </button>
+      )}
 
       {/* Features */}
       <div className="space-y-3">

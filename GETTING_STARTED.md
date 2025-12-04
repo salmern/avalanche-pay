@@ -1,4 +1,4 @@
-# 🚀 Getting Started with Avalanche Pay
+./# 🚀 Getting Started with Avalanche Pay
 
 **Complete guide to get Avalanche Pay running in 15 minutes**
 

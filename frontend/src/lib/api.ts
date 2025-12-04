@@ -26,6 +26,38 @@ export interface Transaction {
   status: 'pending' | 'completed' | 'failed'
   fee: string
   timestamp: string
+  note?: string
+  privacy?: 'public' | 'friends' | 'private'
+}
+
+export interface FeedItem {
+  id: string
+  from_username: string
+  to_username: string
+  amount: string
+  note?: string
+  timestamp: string
+  privacy: 'public' | 'friends' | 'private'
+  reactions?: Record<string, number>
+  user_reacted?: string[]
+}
+
+export interface PaymentRequest {
+  id: string
+  from_username: string
+  to_username: string
+  amount: string
+  note?: string
+  status: 'pending' | 'paid' | 'declined' | 'cancelled'
+  created_at: string
+}
+
+export interface UserProfile {
+  username: string
+  bio?: string
+  avatar?: string
+  privacy: 'public' | 'friends' | 'private'
+  wallet_address: string
 }
 
 export const apiClient = {
@@ -62,13 +94,21 @@ export const apiClient = {
     fromAddress: string,
     toAddress: string,
     amount: string,
-    token: string = 'USDC'
+    token: string = 'USDC',
+    note?: string,
+    privacy: 'public' | 'friends' | 'private' = 'public',
+    fromUsername?: string,
+    toUsername?: string
   ): Promise<{ intentData: any; transactionId: string }> {
     const { data } = await api.post('/api/transactions/create', {
       from_address: fromAddress,
       to_address: toAddress,
       amount,
       token,
+      note,
+      privacy,
+      from_username: fromUsername,
+      to_username: toUsername,
     })
     return data
   },
@@ -97,5 +137,77 @@ export const apiClient = {
       telegram_id: telegramId,
       message,
     })
+  },
+
+  // Feed endpoints
+  async getFeed(filter: 'all' | 'friends' = 'all'): Promise<FeedItem[]> {
+    const { data } = await api.get(`/api/feed?filter=${filter}`)
+    return data
+  },
+
+  async addReaction(itemId: string, emoji: string): Promise<void> {
+    await api.post('/api/feed/reaction', {
+      item_id: itemId,
+      emoji,
+    })
+  },
+
+  // Payment request endpoints
+  async createPaymentRequest(
+    fromUsername: string,
+    toUsername: string,
+    amount: string,
+    note?: string
+  ): Promise<PaymentRequest> {
+    const { data } = await api.post('/api/requests/create', {
+      from_username: fromUsername,
+      to_username: toUsername,
+      amount,
+      note,
+    })
+    return data
+  },
+
+  async getIncomingRequests(username: string): Promise<PaymentRequest[]> {
+    const { data } = await api.get(`/api/requests/incoming/${username}`)
+    return data
+  },
+
+  async getOutgoingRequests(username: string): Promise<PaymentRequest[]> {
+    const { data } = await api.get(`/api/requests/outgoing/${username}`)
+    return data
+  },
+
+  async updateRequestStatus(
+    requestId: string,
+    status: 'paid' | 'declined' | 'cancelled'
+  ): Promise<void> {
+    await api.post('/api/requests/update', {
+      request_id: requestId,
+      status,
+    })
+  },
+
+  // Profile endpoints
+  async getUserProfile(username: string): Promise<UserProfile> {
+    const { data } = await api.get(`/api/profile/${username}`)
+    return data
+  },
+
+  async updateUserProfile(
+    username: string,
+    updates: { bio?: string; avatar?: string; privacy?: 'public' | 'friends' | 'private' }
+  ): Promise<UserProfile> {
+    const { data } = await api.post('/api/profile/update', {
+      username,
+      ...updates,
+    })
+    return data
+  },
+
+  // Search users
+  async searchUsers(query: string): Promise<User[]> {
+    const { data } = await api.get(`/api/users/search?q=${encodeURIComponent(query)}`)
+    return data
   },
 }

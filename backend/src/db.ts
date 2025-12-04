@@ -32,6 +32,9 @@ export async function initDatabase() {
         telegram_id BIGINT UNIQUE NOT NULL,
         username TEXT UNIQUE NOT NULL,
         wallet_address TEXT NOT NULL,
+        bio TEXT,
+        avatar TEXT,
+        privacy TEXT DEFAULT 'public',
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       )
@@ -43,12 +46,42 @@ export async function initDatabase() {
         id SERIAL PRIMARY KEY,
         from_address TEXT NOT NULL,
         to_address TEXT NOT NULL,
+        from_username TEXT,
+        to_username TEXT,
         amount TEXT NOT NULL,
         token TEXT DEFAULT 'USDC',
         tx_hash TEXT,
         status TEXT DEFAULT 'pending',
         fee TEXT DEFAULT '0',
+        note TEXT,
+        privacy TEXT DEFAULT 'public',
         timestamp TIMESTAMP DEFAULT NOW()
+      )
+    `)
+
+    // Create payment requests table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS payment_requests (
+        id SERIAL PRIMARY KEY,
+        from_username TEXT NOT NULL,
+        to_username TEXT NOT NULL,
+        amount TEXT NOT NULL,
+        note TEXT,
+        status TEXT DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `)
+
+    // Create reactions table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS reactions (
+        id SERIAL PRIMARY KEY,
+        transaction_id INTEGER REFERENCES transactions(id),
+        username TEXT NOT NULL,
+        emoji TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(transaction_id, username, emoji)
       )
     `)
 
@@ -70,6 +103,15 @@ export async function initDatabase() {
     `)
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_transactions_timestamp ON transactions(timestamp DESC)
+    `)
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_payment_requests_to ON payment_requests(to_username)
+    `)
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_payment_requests_from ON payment_requests(from_username)
+    `)
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_reactions_transaction ON reactions(transaction_id)
     `)
 
     console.log('✅ Database tables initialized')

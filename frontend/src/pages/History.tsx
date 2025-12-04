@@ -72,6 +72,10 @@ export function History({ onBack }: HistoryProps) {
                     <p className="text-purple-200 text-xs">{tx.token}</p>
                   </div>
                 </div>
+
+                {tx.note && (
+                  <p className="text-purple-200 text-sm mb-2">{tx.note}</p>
+                )}
                 
                 {tx.tx_hash && (
                   <a

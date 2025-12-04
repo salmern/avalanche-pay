@@ -18,6 +18,8 @@ export function Send({ onBack }: SendProps) {
   const { user, lastRecipient, setLastRecipient, updateBalance } = useStore()
   const [recipient, setRecipient] = useState('')
   const [amount, setAmount] = useState('')
+  const [note, setNote] = useState('')
+  const [token, setToken] = useState<'USDC' | 'AVAX'>('USDC')
   const [isLoading, setIsLoading] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
   const [txDetails, setTxDetails] = useState<{ hash: string; time: number } | null>(null)
@@ -96,7 +98,12 @@ export function Send({ onBack }: SendProps) {
       await apiClient.createTransaction(
         address,
         recipientUser.wallet_address,
-        amount
+        amount,
+        token,
+        note,
+        'public',
+        user?.username,
+        recipientUser.username
       )
 
       // Execute transfer using x402 intent pattern
@@ -199,11 +206,46 @@ export function Send({ onBack }: SendProps) {
         />
       </div>
 
+      {/* Token Selector */}
+      <div className="mb-4">
+        <label className="text-purple-200 text-sm mb-2 block">Token</label>
+        <div className="flex gap-2">
+          <button
+            onClick={() => {
+              hapticFeedback('light')
+              setToken('USDC')
+            }}
+            className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
+              token === 'USDC'
+                ? 'bg-white text-purple-600'
+                : 'bg-white/10 text-white border border-white/20'
+            }`}
+          >
+            USDC
+          </button>
+          <button
+            onClick={() => {
+              hapticFeedback('light')
+              setToken('AVAX')
+            }}
+            className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
+              token === 'AVAX'
+                ? 'bg-white text-purple-600'
+                : 'bg-white/10 text-white border border-white/20'
+            }`}
+          >
+            AVAX
+          </button>
+        </div>
+      </div>
+
       {/* Amount Input */}
-      <div className="mb-6">
-        <label className="text-purple-200 text-sm mb-2 block">Amount (USDC)</label>
+      <div className="mb-4">
+        <label className="text-purple-200 text-sm mb-2 block">Amount ({token})</label>
         <div className="relative">
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white text-2xl font-bold">$</span>
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white text-2xl font-bold">
+            {token === 'USDC' ? '$' : ''}
+          </span>
           <input
             type="number"
             value={amount}
@@ -212,6 +254,19 @@ export function Send({ onBack }: SendProps) {
             className="w-full bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl pl-10 pr-4 py-4 text-white text-2xl font-bold placeholder-purple-300/50 focus:outline-none focus:border-purple-400"
           />
         </div>
+      </div>
+
+      {/* Note Input */}
+      <div className="mb-6">
+        <label className="text-purple-200 text-sm mb-2 block">Note (optional)</label>
+        <input
+          type="text"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="What's this for? 🍕"
+          maxLength={100}
+          className="w-full bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl px-4 py-3 text-white placeholder-purple-300/50 focus:outline-none focus:border-purple-400"
+        />
       </div>
 
       {/* Quick Amount Buttons */}

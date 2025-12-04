@@ -5,19 +5,36 @@ import { Home } from './pages/Home'
 import { Send } from './pages/Send'
 import { Receive } from './pages/Receive'
 import { History } from './pages/History'
+import { Feed } from './pages/Feed'
+import { Request } from './pages/Request'
+import { Profile } from './pages/Profile'
+import { Search } from './pages/Search'
+import { SplitBill } from './pages/SplitBill'
+import { Onboarding } from './pages/Onboarding'
 import { useStore } from './store/useStore'
 import { Navigation } from './components/Navigation'
 
+type Page = 'home' | 'send' | 'receive' | 'history' | 'feed' | 'request' | 'profile' | 'search' | 'split' | 'onboarding'
+
 function App() {
-  const [currentPage, setCurrentPage] = useState<'home' | 'send' | 'receive' | 'history'>('home')
-  const { initUser } = useStore()
+  const [currentPage, setCurrentPage] = useState<Page>('home')
+  const { initUser, user, showOnboarding } = useStore()
 
   useEffect(() => {
     initUser()
   }, [initUser])
 
+  useEffect(() => {
+    // Show onboarding for new users
+    if (showOnboarding && !user) {
+      setCurrentPage('onboarding')
+    }
+  }, [showOnboarding, user])
+
   const renderPage = () => {
     switch (currentPage) {
+      case 'onboarding':
+        return <Onboarding onComplete={() => setCurrentPage('home')} />
       case 'home':
         return <Home onNavigate={setCurrentPage} />
       case 'send':
@@ -26,6 +43,16 @@ function App() {
         return <Receive onBack={() => setCurrentPage('home')} />
       case 'history':
         return <History onBack={() => setCurrentPage('home')} />
+      case 'feed':
+        return <Feed onBack={() => setCurrentPage('home')} />
+      case 'request':
+        return <Request onBack={() => setCurrentPage('home')} onNavigate={setCurrentPage} />
+      case 'profile':
+        return <Profile onBack={() => setCurrentPage('home')} />
+      case 'search':
+        return <Search onBack={() => setCurrentPage('home')} />
+      case 'split':
+        return <SplitBill onBack={() => setCurrentPage('home')} />
       default:
         return <Home onNavigate={setCurrentPage} />
     }
@@ -45,7 +72,9 @@ function App() {
           }}
         />
         {renderPage()}
-        <Navigation currentPage={currentPage} onNavigate={setCurrentPage} />
+        {currentPage !== 'onboarding' && (
+          <Navigation currentPage={currentPage} onNavigate={setCurrentPage} />
+        )}
       </div>
     </WalletProvider>
   )

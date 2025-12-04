@@ -8,6 +8,7 @@ interface AppState {
   transactions: Transaction[]
   isLoading: boolean
   lastRecipient: string | null
+  showOnboarding: boolean
   
   // Actions
   initUser: () => Promise<void>
@@ -15,6 +16,7 @@ interface AppState {
   updateBalance: (walletAddress: string) => Promise<void>
   loadTransactions: (walletAddress: string) => Promise<void>
   setLastRecipient: (recipient: string) => void
+  completeOnboarding: () => void
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -23,6 +25,7 @@ export const useStore = create<AppState>((set, get) => ({
   transactions: [],
   isLoading: false,
   lastRecipient: null,
+  showOnboarding: !localStorage.getItem('onboardingComplete'),
 
   initUser: async () => {
     const tgUser = getTelegramUser()
@@ -81,5 +84,10 @@ export const useStore = create<AppState>((set, get) => ({
 
   setLastRecipient: (recipient: string) => {
     set({ lastRecipient: recipient })
+  },
+
+  completeOnboarding: () => {
+    localStorage.setItem('onboardingComplete', 'true')
+    set({ showOnboarding: false })
   },
 }))
