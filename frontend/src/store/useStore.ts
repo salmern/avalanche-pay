@@ -49,11 +49,12 @@ export const useStore = create<AppState>((set, get) => ({
 
   setUsername: async (username: string, walletAddress: string) => {
     const tgUser = getTelegramUser()
-    if (!tgUser) throw new Error('Telegram user not found')
+    // Use mock telegram_id in development mode (when not in Telegram)
+    const telegramId = tgUser?.id || Date.now()
 
     set({ isLoading: true })
     try {
-      const user = await apiClient.setUsername(tgUser.id, username, walletAddress)
+      const user = await apiClient.setUsername(telegramId, username, walletAddress)
       set({ user })
       await get().updateBalance(walletAddress)
     } catch (error) {

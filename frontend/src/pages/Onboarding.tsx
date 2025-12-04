@@ -14,7 +14,11 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const { setUsername, completeOnboarding } = useStore()
   const [step, setStep] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
+  const [manualUsername, setManualUsername] = useState('')
   const tgUser = getTelegramUser()
+  
+  // Development mode: allow testing without Telegram
+  const isDevelopment = !tgUser
 
   const handleConnect = async () => {
     hapticFeedback('light')
@@ -27,11 +31,18 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       return
     }
 
-    if (!tgUser?.username) {
-      toast.error('Please set a Telegram username first!\n\nGo to: Telegram Settings → Username', {
-        duration: 5000,
-        icon: '⚠️',
-      })
+    // Use manual username in development mode, Telegram username in production
+    const username = isDevelopment ? manualUsername : tgUser?.username
+
+    if (!username) {
+      if (isDevelopment) {
+        toast.error('Please enter a username')
+      } else {
+        toast.error('Please set a Telegram username first!\n\nGo to: Telegram Settings → Username', {
+          duration: 5000,
+          icon: '⚠️',
+        })
+      }
       return
     }
 
@@ -39,7 +50,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     setIsLoading(true)
 
     try {
-      await setUsername(tgUser.username, address)
+      await setUsername(username, address)
       hapticFeedback('success')
       setStep(3)
     } catch (error: any) {
@@ -176,7 +187,47 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                 </div>
               </div>
 
-              {!tgUser?.username ? (
+              {isDevelopment ? (
+                <>
+                  <div className="bg-blue-500/20 backdrop-blur-lg rounded-2xl p-4 mb-4 border border-blue-500/30">
+                    <div className="flex items-start">
+                      <svg className="w-6 h-6 text-blue-300 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <div>
+                        <p className="text-blue-300 font-semibold mb-1">Development Mode</p>
+                        <p className="text-blue-200 text-sm">
+                          Testing without Telegram. Enter any username below.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="mb-4">
+                    <label className="text-purple-200 text-sm mb-2 block">Choose a Username</label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white font-semibold">@</span>
+                      <input
+                        type="text"
+                        value={manualUsername}
+                        onChange={(e) => setManualUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                        placeholder="username"
+                        maxLength={20}
+                        className="w-full bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl pl-10 pr-4 py-4 text-white placeholder-purple-300/50 focus:outline-none focus:border-purple-400"
+                      />
+                    </div>
+                    <p className="text-purple-300 text-xs mt-2">Letters, numbers, and underscores only</p>
+                  </div>
+
+                  <button
+                    onClick={handleSetUsername}
+                    disabled={isLoading || !manualUsername}
+                    className="w-full bg-gradient-to-r from-purple-500 to-orange-500 text-white font-bold py-4 rounded-2xl hover:opacity-90 transition-all transform active:scale-95 disabled:opacity-50"
+                  >
+                    {isLoading ? 'Setting Username...' : `Set Username (@${manualUsername || 'username'})`}
+                  </button>
+                </>
+              ) : !tgUser?.username ? (
                 <div className="bg-yellow-500/20 backdrop-blur-lg rounded-2xl p-4 mb-6 border border-yellow-500/30">
                   <div className="flex items-start">
                     <svg className="w-6 h-6 text-yellow-300 mr-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -237,7 +288,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
           <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 mb-8 border border-white/20">
             <div className="text-center">
               <p className="text-purple-200 text-sm mb-2">Your Username</p>
-              <p className="text-white text-2xl font-bold mb-4">@{tgUser?.username}</p>
+              <p className="text-white text-2xl font-bold mb-4">@{isDevelopment ? manualUsername : tgUser?.username}</p>
               <p className="text-purple-200 text-xs">
                 Friends can send you money using this username
               </p>

@@ -1,9 +1,12 @@
+// ==========================================
+// FILE 2: backend/src/index.ts
+// ==========================================
 import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import TelegramBot from 'node-telegram-bot-api'
 import { ethers } from 'ethers'
-import { pool, initDatabase } from './db.js'
+import { supabase, initDatabase } from './db.js'
 
 dotenv.config()
 
@@ -17,8 +20,64 @@ app.use(cors({
 }))
 app.use(express.json())
 
-// Telegram bot
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN!, { polling: true })
+// Telegram bot (optional - only if token is provided)
+let bot: TelegramBot | null = null
+const ENABLE_BOT = process.env.ENABLE_TELEGRAM_BOT === 'true'
+
+if (ENABLE_BOT && process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_BOT_TOKEN !== 'your_bot_token_here') {
+  try {
+    // Validate token format (basic check)
+    const token = process.env.TELEGRAM_BOT_TOKEN
+    if (!token.match(/^\d+:[A-Za-z0-9_-]+$/)) {
+      throw new Error('Invalid bot token format')
+    }
+
+    bot = new TelegramBot(token, {
+      polling: {
+        interval: 300,
+        autoStart: true,
+        params: {
+          timeout: 10
+        }
+      }
+    })
+
+    // Handle polling errors (non-fatal)
+    bot.on('polling_error', (error) => {
+      console.log('⚠️  Telegram polling error (non-fatal):', error.code || error.message)
+    })
+
+    // Handle webhook errors
+    bot.on('webhook_error', (error) => {
+      console.error('⚠️  Telegram webhook error:', error.message)
+    })
+
+    // Test bot connection with timeout
+    const connectionTimeout = setTimeout(() => {
+      console.warn('⚠️  Telegram bot connection timeout - bot may not be fully functional')
+    }, 5000)
+
+    bot.getMe()
+      .then((botInfo) => {
+        clearTimeout(connectionTimeout)
+        console.log(`📱 Telegram bot initialized successfully: @${botInfo.username}`)
+      })
+      .catch((error) => {
+        clearTimeout(connectionTimeout)
+        console.error('⚠️  Telegram bot connection failed:', error.message)
+        console.log('ℹ️  Server will continue running, but bot features will be unavailable')
+        // Don't set bot to null - let it try to recover
+      })
+
+    console.log('📱 Telegram bot initialization started...')
+  } catch (error: any) {
+    console.error('❌ Telegram bot failed to initialize:', error.message)
+    console.log('ℹ️  Server will continue running without Telegram bot')
+    bot = null
+  }
+} else {
+  console.log('ℹ️  Telegram bot disabled (set ENABLE_TELEGRAM_BOT=true to enable)')
+}
 
 // Avalanche provider (Fuji testnet)
 const provider = new ethers.JsonRpcProvider('https://api.avax-test.network/ext/bc/C/rpc')
@@ -40,16 +99,23 @@ app.post('/api/users/set-username', async (req, res) => {
   try {
     const { telegram_id, username, wallet_address } = req.body
 
-    const result = await pool.query(
-      `INSERT INTO users (telegram_id, username, wallet_address, updated_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (telegram_id) 
-       DO UPDATE SET username = $2, wallet_address = $3, updated_at = NOW()
-       RETURNING *`,
-      [telegram_id, username, wallet_address]
-    )
+    const { data, error } = await supabase
+      .from('users')
+      .upsert(
+        {
+          telegram_id,
+          username,
+          wallet_address,
+          updated_at: new Date().toISOString()
+        },
+        { onConflict: 'telegram_id' }
+      )
+      .select()
+      .single()
 
-    res.json(result.rows[0])
+    if (error) throw error
+
+    res.json(data)
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }
@@ -59,16 +125,17 @@ app.get('/api/users/:telegram_id', async (req, res) => {
   try {
     const { telegram_id } = req.params
 
-    const result = await pool.query(
-      'SELECT * FROM users WHERE telegram_id = $1',
-      [telegram_id]
-    )
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('telegram_id', telegram_id)
+      .single()
 
-    if (result.rows.length === 0) {
+    if (error || !data) {
       return res.status(404).json({ error: 'User not found' })
     }
 
-    res.json(result.rows[0])
+    res.json(data)
   } catch (error: any) {
     res.status(404).json({ error: 'User not found' })
   }
@@ -78,16 +145,17 @@ app.get('/api/users/username/:username', async (req, res) => {
   try {
     const { username } = req.params
 
-    const result = await pool.query(
-      'SELECT * FROM users WHERE username = $1',
-      [username]
-    )
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('username', username)
+      .single()
 
-    if (result.rows.length === 0) {
+    if (error || !data) {
       return res.status(404).json({ error: 'User not found' })
     }
 
-    res.json(result.rows[0])
+    res.json(data)
   } catch (error: any) {
     res.status(404).json({ error: 'User not found' })
   }
@@ -121,14 +189,25 @@ app.post('/api/transactions/create', async (req, res) => {
   try {
     const { from_address, to_address, amount, token, note, privacy, from_username, to_username } = req.body
 
-    const result = await pool.query(
-      `INSERT INTO transactions (from_address, to_address, from_username, to_username, amount, token, status, fee, note, privacy, timestamp)
-       VALUES ($1, $2, $3, $4, $5, $6, 'pending', '0.0001', $7, $8, NOW())
-       RETURNING *`,
-      [from_address, to_address, from_username, to_username, amount, token || 'USDC', note, privacy || 'public']
-    )
+    const { data, error } = await supabase
+      .from('transactions')
+      .insert({
+        from_address,
+        to_address,
+        from_username,
+        to_username,
+        amount,
+        token: token || 'USDC',
+        status: 'pending',
+        fee: '0.0001',
+        note,
+        privacy: privacy || 'public',
+        timestamp: new Date().toISOString()
+      })
+      .select()
+      .single()
 
-    const data = result.rows[0]
+    if (error) throw error
 
     res.json({
       transactionId: data.id,
@@ -148,19 +227,21 @@ app.post('/api/transactions/submit', async (req, res) => {
   try {
     const { transaction_id, tx_hash } = req.body
 
-    const result = await pool.query(
-      `UPDATE transactions 
-       SET tx_hash = $1, status = 'completed'
-       WHERE id = $2
-       RETURNING *`,
-      [tx_hash, transaction_id]
-    )
+    const { data, error } = await supabase
+      .from('transactions')
+      .update({
+        tx_hash,
+        status: 'completed'
+      })
+      .eq('id', transaction_id)
+      .select()
+      .single()
 
-    if (result.rows.length === 0) {
+    if (error || !data) {
       return res.status(404).json({ error: 'Transaction not found' })
     }
 
-    res.json(result.rows[0])
+    res.json(data)
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }
@@ -170,15 +251,16 @@ app.get('/api/transactions/:wallet_address', async (req, res) => {
   try {
     const { wallet_address } = req.params
 
-    const result = await pool.query(
-      `SELECT * FROM transactions 
-       WHERE from_address = $1 OR to_address = $1
-       ORDER BY timestamp DESC
-       LIMIT 50`,
-      [wallet_address]
-    )
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .or(`from_address.eq.${wallet_address},to_address.eq.${wallet_address}`)
+      .order('timestamp', { ascending: false })
+      .limit(50)
 
-    res.json(result.rows)
+    if (error) throw error
+
+    res.json(data || [])
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }
@@ -189,11 +271,23 @@ app.post('/api/notify', async (req, res) => {
   try {
     const { telegram_id, message } = req.body
 
-    await bot.sendMessage(telegram_id, message, {
-      parse_mode: 'Markdown',
-    })
-
-    res.json({ success: true })
+    if (bot) {
+      try {
+        await bot.sendMessage(telegram_id, message, {
+          parse_mode: 'Markdown',
+        })
+        res.json({ success: true })
+      } catch (botError: any) {
+        console.error('Failed to send Telegram message:', botError.message)
+        res.status(500).json({
+          success: false,
+          error: 'Failed to send message via Telegram',
+          details: botError.message
+        })
+      }
+    } else {
+      res.json({ success: false, message: 'Telegram bot not configured' })
+    }
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }
@@ -202,28 +296,38 @@ app.post('/api/notify', async (req, res) => {
 // Feed endpoints
 app.get('/api/feed', async (req, res) => {
   try {
-    const { filter = 'all' } = req.query
+    const { data: transactions, error: txError } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('privacy', 'public')
+      .eq('status', 'completed')
+      .order('timestamp', { ascending: false })
+      .limit(50)
 
-    let query = `
-      SELECT t.*, 
-        COALESCE(
-          json_object_agg(r.emoji, r.count) FILTER (WHERE r.emoji IS NOT NULL),
-          '{}'::json
-        ) as reactions
-      FROM transactions t
-      LEFT JOIN (
-        SELECT transaction_id, emoji, COUNT(*) as count
-        FROM reactions
-        GROUP BY transaction_id, emoji
-      ) r ON t.id = r.transaction_id
-      WHERE t.privacy = 'public' AND t.status = 'completed'
-      GROUP BY t.id
-      ORDER BY t.timestamp DESC
-      LIMIT 50
-    `
+    if (txError) throw txError
 
-    const result = await pool.query(query)
-    res.json(result.rows)
+    // Get reactions for each transaction
+    const transactionsWithReactions = await Promise.all(
+      (transactions || []).map(async (tx) => {
+        const { data: reactions } = await supabase
+          .from('reactions')
+          .select('emoji')
+          .eq('transaction_id', tx.id)
+
+        // Group reactions by emoji
+        const reactionCounts: Record<string, number> = {}
+        reactions?.forEach((r) => {
+          reactionCounts[r.emoji] = (reactionCounts[r.emoji] || 0) + 1
+        })
+
+        return {
+          ...tx,
+          reactions: reactionCounts
+        }
+      })
+    )
+
+    res.json(transactionsWithReactions)
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }
@@ -233,12 +337,18 @@ app.post('/api/feed/reaction', async (req, res) => {
   try {
     const { item_id, emoji, username } = req.body
 
-    await pool.query(
-      `INSERT INTO reactions (transaction_id, username, emoji, created_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (transaction_id, username, emoji) DO NOTHING`,
-      [item_id, username, emoji]
-    )
+    const { error } = await supabase
+      .from('reactions')
+      .insert({
+        transaction_id: item_id,
+        username,
+        emoji,
+        created_at: new Date().toISOString()
+      })
+
+    if (error && error.code !== '23505') { // Ignore duplicate key errors
+      throw error
+    }
 
     res.json({ success: true })
   } catch (error: any) {
@@ -251,14 +361,22 @@ app.post('/api/requests/create', async (req, res) => {
   try {
     const { from_username, to_username, amount, note } = req.body
 
-    const result = await pool.query(
-      `INSERT INTO payment_requests (from_username, to_username, amount, note, status, created_at)
-       VALUES ($1, $2, $3, $4, 'pending', NOW())
-       RETURNING *`,
-      [from_username, to_username, amount, note]
-    )
+    const { data, error } = await supabase
+      .from('payment_requests')
+      .insert({
+        from_username,
+        to_username,
+        amount,
+        note,
+        status: 'pending',
+        created_at: new Date().toISOString()
+      })
+      .select()
+      .single()
 
-    res.json(result.rows[0])
+    if (error) throw error
+
+    res.json(data)
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }
@@ -268,15 +386,16 @@ app.get('/api/requests/incoming/:username', async (req, res) => {
   try {
     const { username } = req.params
 
-    const result = await pool.query(
-      `SELECT * FROM payment_requests 
-       WHERE to_username = $1
-       ORDER BY created_at DESC
-       LIMIT 50`,
-      [username]
-    )
+    const { data, error } = await supabase
+      .from('payment_requests')
+      .select('*')
+      .eq('to_username', username)
+      .order('created_at', { ascending: false })
+      .limit(50)
 
-    res.json(result.rows)
+    if (error) throw error
+
+    res.json(data || [])
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }
@@ -286,15 +405,16 @@ app.get('/api/requests/outgoing/:username', async (req, res) => {
   try {
     const { username } = req.params
 
-    const result = await pool.query(
-      `SELECT * FROM payment_requests 
-       WHERE from_username = $1
-       ORDER BY created_at DESC
-       LIMIT 50`,
-      [username]
-    )
+    const { data, error } = await supabase
+      .from('payment_requests')
+      .select('*')
+      .eq('from_username', username)
+      .order('created_at', { ascending: false })
+      .limit(50)
 
-    res.json(result.rows)
+    if (error) throw error
+
+    res.json(data || [])
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }
@@ -304,15 +424,19 @@ app.post('/api/requests/update', async (req, res) => {
   try {
     const { request_id, status } = req.body
 
-    const result = await pool.query(
-      `UPDATE payment_requests 
-       SET status = $1, updated_at = NOW()
-       WHERE id = $2
-       RETURNING *`,
-      [status, request_id]
-    )
+    const { data, error } = await supabase
+      .from('payment_requests')
+      .update({
+        status,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', request_id)
+      .select()
+      .single()
 
-    res.json(result.rows[0])
+    if (error) throw error
+
+    res.json(data)
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }
@@ -323,16 +447,17 @@ app.get('/api/profile/:username', async (req, res) => {
   try {
     const { username } = req.params
 
-    const result = await pool.query(
-      'SELECT username, bio, avatar, privacy, wallet_address FROM users WHERE username = $1',
-      [username]
-    )
+    const { data, error } = await supabase
+      .from('users')
+      .select('username, bio, avatar, privacy, wallet_address')
+      .eq('username', username)
+      .single()
 
-    if (result.rows.length === 0) {
+    if (error || !data) {
       return res.status(404).json({ error: 'User not found' })
     }
 
-    res.json(result.rows[0])
+    res.json(data)
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }
@@ -342,22 +467,23 @@ app.post('/api/profile/update', async (req, res) => {
   try {
     const { username, bio, avatar, privacy } = req.body
 
-    const result = await pool.query(
-      `UPDATE users 
-       SET bio = COALESCE($2, bio), 
-           avatar = COALESCE($3, avatar), 
-           privacy = COALESCE($4, privacy),
-           updated_at = NOW()
-       WHERE username = $1
-       RETURNING username, bio, avatar, privacy, wallet_address`,
-      [username, bio, avatar, privacy]
-    )
+    const updateData: any = { updated_at: new Date().toISOString() }
+    if (bio !== undefined) updateData.bio = bio
+    if (avatar !== undefined) updateData.avatar = avatar
+    if (privacy !== undefined) updateData.privacy = privacy
 
-    if (result.rows.length === 0) {
+    const { data, error } = await supabase
+      .from('users')
+      .update(updateData)
+      .eq('username', username)
+      .select('username, bio, avatar, privacy, wallet_address')
+      .single()
+
+    if (error || !data) {
       return res.status(404).json({ error: 'User not found' })
     }
 
-    res.json(result.rows[0])
+    res.json(data)
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }
@@ -372,76 +498,94 @@ app.get('/api/users/search', async (req, res) => {
       return res.json([])
     }
 
-    const result = await pool.query(
-      `SELECT username, wallet_address, created_at 
-       FROM users 
-       WHERE username ILIKE $1
-       LIMIT 20`,
-      [`%${q}%`]
-    )
+    const { data, error } = await supabase
+      .from('users')
+      .select('username, wallet_address, created_at')
+      .ilike('username', `%${q}%`)
+      .limit(20)
 
-    res.json(result.rows)
+    if (error) throw error
+
+    res.json(data || [])
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }
 })
 
-// Telegram bot handlers
-bot.onText(/\/start/, async (msg) => {
-  const chatId = msg.chat.id
-  const username = msg.from?.username
+// Telegram bot handlers (only if bot is initialized)
+if (bot) {
+  bot.onText(/\/start/, async (msg) => {
+    const chatId = msg.chat.id
 
-  await bot.sendMessage(
-    chatId,
-    `🚀 *Welcome to Avalanche Pay!*\n\nThe fastest way to send money globally.\n\n✨ Features:\n• Send money by username\n• <800ms settlement\n• <$0.001 fees\n• Powered by Avalanche\n\nOpen the app to get started! 👇`,
-    {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [
-            {
-              text: '🚀 Open Avalanche Pay',
-              web_app: { url: process.env.WEBAPP_URL! },
-            },
-          ],
-        ],
-      },
-    }
-  )
-})
+    try {
+      const webappUrl = process.env.WEBAPP_URL || ''
+      const isHttps = webappUrl.startsWith('https://')
 
-bot.on('message', async (msg) => {
-  const chatId = msg.chat.id
-  const text = msg.text
+      // Only include Web App button if URL is HTTPS (Telegram requirement)
+      const messageOptions: any = {
+        parse_mode: 'Markdown',
+      }
 
-  // Handle send command: send @username 25
-  if (text?.startsWith('send ')) {
-    const parts = text.split(' ')
-    if (parts.length >= 3) {
-      const recipient = parts[1]
-      const amount = parts[2]
-
-      await bot.sendMessage(
-        chatId,
-        `💸 Send $${amount} USDC to ${recipient}?`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                {
-                  text: `✅ Send $${amount} USDC`,
-                  web_app: {
-                    url: `${process.env.WEBAPP_URL}?action=send&to=${recipient}&amount=${amount}`,
-                  },
-                },
-              ],
+      if (isHttps) {
+        messageOptions.reply_markup = {
+          inline_keyboard: [
+            [
+              {
+                text: '🚀 Open Avalanche Pay',
+                web_app: { url: webappUrl },
+              },
             ],
-          },
+          ],
         }
+      }
+
+      await bot!.sendMessage(
+        chatId,
+        `🚀 *Welcome to Avalanche Pay!*\\n\\nThe fastest way to send money globally.\\n\\n✨ Features:\\n• Send money by username\\n• <800ms settlement\\n• <$0.001 fees\\n• Powered by Avalanche${isHttps ? '\\n\\nOpen the app to get started! 👇' : '\\n\\n_Note: Web app is in development mode. Deploy to production for full functionality._'}`,
+        messageOptions
       )
+    } catch (error: any) {
+      console.error('Failed to send /start message:', error.message)
     }
-  }
-})
+  })
+
+  bot.on('message', async (msg) => {
+    const chatId = msg.chat.id
+    const text = msg.text
+
+    // Handle send command: send @username 25
+    if (text?.startsWith('send ')) {
+      const parts = text.split(' ')
+      if (parts.length >= 3) {
+        const recipient = parts[1]
+        const amount = parts[2]
+
+        try {
+          await bot!.sendMessage(
+            chatId,
+            `💸 Send $${amount} USDC to ${recipient}?`,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: `✅ Send $${amount} USDC`,
+                      web_app: {
+                        url: `${process.env.WEBAPP_URL}?action=send&to=${recipient}&amount=${amount}`,
+                      },
+                    },
+                  ],
+                ],
+              },
+            }
+          )
+        } catch (error: any) {
+          console.error('Failed to send payment prompt:', error.message)
+        }
+      }
+    }
+  })
+}
 
 // Initialize database and start server
 async function start() {
